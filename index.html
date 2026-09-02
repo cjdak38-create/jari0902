@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>실시간 자율 자리 선택기</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Noto+Sans+KR:wght@400;600;800&display=swap" rel="stylesheet">
+  
+  <style>
+    body {
+      font-family: 'Noto Sans KR', sans-serif;
+      user-select: none;
+    }
+    .font-chalk {
+      font-family: 'Gowun Dodum', sans-serif;
+    }
+
+    /* 책상 카드 애니메이션 및 스타일 */
+    .seat-card {
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .seat-card:hover:not(.seat-taken):not(:disabled) {
+      transform: translateY(-3px) scale(1.02);
+      box-shadow: 0 8px 16px -2px rgba(99, 102, 241, 0.25);
+    }
+    .seat-taken {
+      background-color: #e0e7ff !important;
+      border-color: #6366f1 !important;
+      color: #3730a3 !important;
+    }
+    .seat-mine {
+      background-color: #dcfce7 !important;
+      border-color: #22c55e !important;
+      color: #14532d !important;
+      animation: pulse-mine 2s infinite;
+    }
+    .seat-teacher-hover:hover {
+      border-color: #ef4444 !important;
+      background-color: #fee2e2 !important;
+      color: #991b1b !important;
+    }
+    @keyframes pulse-mine {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); }
+      50% { box-shadow: 0 0 0 8px rgba(34, 197, 94, 0); }
+    }
+  </style>
+</head>
+<body class="bg-slate-100 min-h-screen text-slate-800 pb-12">
+
+  <!-- 입장 모달 (이름 입력) -->
+  <div id="joinModal" class="fixed inset-0 bg-slate-900/70 backdrop-blur-md z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-sm w-full p-6 md:p-8 shadow-2xl border border-slate-100 text-center">
+      <div class="inline-flex p-3 bg-indigo-100 text-indigo-600 rounded-2xl mb-3">
+        <i class="fa-solid fa-chair text-3xl"></i>
+      </div>
+      <h2 class="text-2xl font-bold text-slate-900">실시간 자리 선택</h2>
+      <p class="text-xs text-slate-500 mt-1 mb-6">이름을 입력하면 실시간으로 교실에 연결됩니다!</p>
+
+      <div class="space-y-4">
+        <div class="text-left">
+          <label class="block text-xs font-bold text-slate-600 mb-1">내 이름 또는 번호</label>
+          <input type="text" id="studentNameInput" onkeyup="if(event.key==='Enter') enterClassroom()" class="w-full px-4 py-3 rounded-xl border border-slate-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm outline-none font-medium" placeholder="예: 박수민">
+        </div>
+
+        <button onclick="enterClassroom()" class="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg shadow-indigo-200 transition active:scale-98 flex items-center justify-center gap-2">
+          <span>교실 입장하기</span>
+          <i class="fa-solid fa-arrow-right text-xs"></i>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 커스텀 다이얼로그 (alert/confirm 대체) -->
+  <div id="customDialog" class="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-[100] hidden items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl text-center transform transition-all">
+      <div id="customDialogIcon" class="mb-4 text-3xl"></div>
+      <p id="customDialogMessage" class="text-slate-800 font-medium mb-6 whitespace-pre-wrap"></p>
+      <div class="flex gap-3 justify-center">
+        <button id="customDialogCancel" class="hidden px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition">취소</button>
+        <button id="customDialogConfirm" class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold transition">확인</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 상단 헤더 -->
+  <header class="bg-white/80 backdrop-blur border-b border-slate-200 sticky top-0 z-30 shadow-sm">
+    <div class="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="bg-indigo-600 text-white p-2.5 rounded-xl shadow-md">
+          <i class="fa-solid fa-school text-xl"></i>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="text-lg font-bold text-slate-900 leading-tight">실시간 자율 자리 선택 교실</h1>
+            <!-- 실시간 상태 태그 -->
+            <span id="syncIndicator" class="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">
+              <span class="w-2 h-2 rounded-full bg-slate-400"></span> 연결 대기...
+            </span>
+          </div>
+          <p id="userInfoText" class="text-xs text-slate-500">접속자: 이름을 입력해 주세요</p>
+        </div>
+      </div>
+
+      <!-- 제어 및 상태 버튼 -->
+      <div class="flex items-center gap-2 flex-wrap">
+        <div class="bg-indigo-50 border border-indigo-100 text-indigo-700 text-xs font-semibold px-3 py-2 rounded-xl flex items-center gap-1.5">
+          <i class="fa-solid fa-users text-indigo-600"></i>
+          <span>선택완료: <b id="selectedCount">0</b> / 29명</span>
+        </div>
+
+        <!-- 선생님/관리자 모드 토글 -->
+        <button id="teacherModeBtn" onclick="toggleTeacherMode()" class="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold transition flex items-center gap-1.5">
+          <i class="fa-solid fa-user-gear"></i>
+          <span>선생님 모드: <span id="teacherModeStatus" class="text-slate-500">OFF</span></span>
+        </button>
+
+        <!-- 중복 정리 버튼 -->
+        <button onclick="cleanDuplicateSeats()" class="px-3 py-2 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded-xl text-xs font-bold transition flex items-center gap-1">
+          <i class="fa-solid fa-broom"></i>
+          <span class="hidden sm:inline">중복 정돈</span>
+        </button>
+
+        <!-- 전체 초기화 버튼 -->
+        <button onclick="resetAllSeats()" class="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-xl text-xs font-bold transition flex items-center gap-1">
+          <i class="fa-solid fa-rotate-right"></i>
+          <span class="hidden sm:inline">전체 초기화</span>
+        </button>
+
+        <button onclick="changeName()" class="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-semibold transition">
+          이름 변경
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- 메인 교실 영역 -->
+  <main class="max-w-6xl mx-auto p-4 md:p-6">
+
+    <!-- 접속자 명단 & 제어 패널 (신규 추가) -->
+    <div class="bg-white rounded-3xl p-5 md:p-6 shadow-md border border-slate-200/80 mb-6 flex flex-col md:flex-row gap-4 justify-between items-start md:items-center">
+      <div class="flex-1 w-full">
+        <h3 class="text-sm font-bold text-slate-800 mb-3"><i class="fa-solid fa-users-rays text-indigo-500 mr-1.5"></i>현재 접속 중인 학생 (<span id="joinedCount" class="text-indigo-600">0</span>명)</h3>
+        <div id="joinedUsersList" class="flex flex-wrap gap-2 min-h-[28px]">
+          <span class="text-xs text-slate-400">아직 접속한 학생이 없거나 로딩 중입니다.</span>
+        </div>
+      </div>
+      
+      <!-- 선생님 전용 제어 (기본 숨김) -->
+      <div id="teacherControls" class="hidden flex-shrink-0 w-full md:w-auto border-t md:border-t-0 md:border-l border-slate-100 pt-4 md:pt-0 md:pl-6 mt-2 md:mt-0">
+        <button id="startSelectionBtn" onclick="toggleSelectionStart()" class="w-full md:w-auto px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-bold transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-200">
+          <i class="fa-solid fa-play"></i> <span>자리 선택 시작하기</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- 상태 메시지 배너 -->
+    <div id="statusBanner" class="bg-slate-50 border border-slate-200 p-4 rounded-2xl mb-6 flex items-center justify-between gap-4 shadow-sm transition">
+      <div class="flex items-center gap-3 text-sm text-slate-700">
+        <span id="statusIcon" class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-slate-500 text-white font-bold text-xs shadow-sm">
+          <i class="fa-solid fa-hourglass-half"></i>
+        </span>
+        <span id="statusMessage" class="font-medium">선생님이 자리 선택을 시작할 때까지 잠시 대기해 주세요 ⏳</span>
+      </div>
+    </div>
+
+    <!-- 교실 본체 -->
+    <div class="bg-white rounded-3xl p-6 md:p-8 shadow-xl border border-slate-200/80">
+      
+      <!-- 칠판 & 교탁 -->
+      <div class="relative mb-10">
+        <div class="absolute -top-3 left-4 text-xs font-bold text-slate-400 bg-slate-100 px-3 py-1 rounded-full border border-slate-200 flex items-center gap-1">
+          <i class="fa-solid fa-door-open text-amber-700"></i> 앞문
+        </div>
+        <div class="absolute -top-3 right-4 text-xs font-bold text-slate-400 bg-slate-100 px-3 py-1 rounded-full border border-slate-200 flex items-center gap-1">
+          <i class="fa-solid fa-window-maximize text-blue-500"></i> 창문 쪽
+        </div>
+
+        <div class="w-full max-w-2xl mx-auto bg-emerald-900 border-8 border-amber-800 rounded-xl p-4 text-center shadow-lg">
+          <p class="font-chalk text-amber-100 text-lg md:text-2xl tracking-wider font-semibold">
+            칠 판 (앞 쪽)
+          </p>
+          <p class="text-xs text-emerald-300/80 mt-1">
+            원하는 자리를 선택해 주세요
+          </p>
+        </div>
+
+        <div class="w-24 h-9 bg-amber-700 border-2 border-amber-900 rounded-lg mx-auto mt-3 shadow-md flex items-center justify-center text-amber-100 text-xs font-bold">
+          교탁
+        </div>
+      </div>
+
+      <!-- 책상 레이아웃 (29석: 8명-8명-8명-5명) -->
+      <div id="seatLayout" class="space-y-6 md:space-y-8 max-w-4xl mx-auto">
+        <!-- JS로 실시간 생성됨 -->
+      </div>
+
+      <!-- 뒷문 표시 -->
+      <div class="mt-10 pt-4 border-t border-slate-100 flex justify-between items-center text-xs font-bold text-slate-400">
+        <div class="flex items-center gap-1 bg-slate-100 px-3 py-1 rounded-full border border-slate-200">
+          <i class="fa-solid fa-door-closed text-amber-700"></i> 뒷문
+        </div>
+        <div>[뒤 쪽]</div>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- Firebase SDK -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, doc, setDoc, updateDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    // Firebase 설정
+    const firebaseConfig = typeof __firebase_config !== 'undefined' 
+      ? JSON.parse(__firebase_config) 
+      : { apiKey: "demo", authDomain: "demo", projectId: "demo" };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'classroom-seat-app';
+
+    // 전역 상태 (새로 추가된 접속자 명단 및 시작 여부 상태 포함)
+    window.currentUser = null;
+    window.userUid = localStorage.getItem('temp_student_uid') || `user_${Math.random().toString(36).substr(2, 9)}`;
+    localStorage.setItem('temp_student_uid', window.userUid);
+
+    window.studentName = localStorage.getItem('temp_student_name') || '';
+    window.seatData = {};
+    window.joinedUsers = {}; // 전체 접속자 목록
+    window.isStarted = false; // 선생님이 시작 버튼을 눌렀는지 여부
+    window.isTeacherMode = false;
+    const TOTAL_SEATS = 29;
+
+    // 커스텀 다이얼로그 함수
+    window.showDialog = function(message, isConfirm = false, iconClass = 'fa-solid fa-circle-info text-indigo-500') {
+      return new Promise((resolve) => {
+        const dialog = document.getElementById('customDialog');
+        const msgEl = document.getElementById('customDialogMessage');
+        const iconEl = document.getElementById('customDialogIcon');
+        const cancelBtn = document.getElementById('customDialogCancel');
+        const confirmBtn = document.getElementById('customDialogConfirm');
+
+        msgEl.innerText = message;
+        iconEl.className = `mb-4 text-3xl ${iconClass}`;
+        
+        dialog.classList.remove('hidden');
+        dialog.classList.add('flex');
+
+        if (isConfirm) {
+          cancelBtn.classList.remove('hidden');
+        } else {
+          cancelBtn.classList.add('hidden');
+        }
+
+        const close = (result) => {
+          dialog.classList.add('hidden');
+          dialog.classList.remove('flex');
+          confirmBtn.onclick = null;
+          cancelBtn.onclick = null;
+          resolve(result);
+        };
+
+        confirmBtn.onclick = () => close(true);
+        cancelBtn.onclick = () => close(false);
+      });
+    };
+
+    // 저장된 이름 자동 채우기
+    if (window.studentName) {
+      document.getElementById('studentNameInput').value = window.studentName;
+      document.getElementById('userInfoText').innerText = `접속자: ${window.studentName}`;
+      document.getElementById('joinModal').classList.add('hidden');
+    }
+
+    // 1. Firebase 인증 초기화 (가장 중요: await로 완료 보장)
+    async function initAuthAndData() {
+      try {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
+        }
+        
+        window.currentUser = auth.currentUser;
+        if (window.currentUser) {
+          window.userUid = window.currentUser.uid;
+          localStorage.setItem('temp_student_uid', window.userUid);
+          
+          // 인증이 완료된 후에 리스너 시작 및 접속자 등록
+          startRealtimeListeners();
+          if (window.studentName) {
+            registerUserPresence();
+          }
+        }
+      } catch (e) {
+        console.error("Auth initialization failed:", e);
+        const indicator = document.getElementById('syncIndicator');
+        if (indicator) {
+          indicator.className = "inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-rose-50 text-rose-600";
+          indicator.innerHTML = `🔴 인증 오류`;
+        }
+      }
+    }
+
+    // 초기 실행
+    initAuthAndData();
+
+    let seatUnsubscribe = null;
+    let stateUnsubscribe = null;
+
+    function startRealtimeListeners() {
+      if (!window.currentUser) return; // 방어 코드
+
+      if (seatUnsubscribe) seatUnsubscribe();
+      if (stateUnsubscribe) stateUnsubscribe();
+
+      const indicator = document.getElementById('syncIndicator');
+
+      // 1. 좌석 데이터 동기화 리스너
+      const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'classroom', 'current_seats');
+      seatUnsubscribe = onSnapshot(roomRef, async (snapshot) => {
+        if (indicator) {
+          indicator.className = "inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200";
+          indicator.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span> 🟢 실시간 연결됨`;
+        }
+
+        if (snapshot.exists()) {
+          const rawSeats = snapshot.data().seats || {};
+          const { cleanedSeats, hasDuplicates } = filterDuplicates(rawSeats);
+
+          window.seatData = cleanedSeats;
+          if (hasDuplicates) {
+            await syncToFirestore(); // 중복 발견 시 즉시 정리
+          }
+        } else {
+          window.seatData = {};
+        }
+        renderClassroom();
+      }, (err) => console.error("Firestore Seat Listen Error:", err));
+
+      // 2. 교실 상태(시작 여부 및 접속자 명단) 동기화 리스너
+      const stateRef = doc(db, 'artifacts', appId, 'public', 'data', 'classroom', 'state');
+      stateUnsubscribe = onSnapshot(stateRef, (snapshot) => {
+        if (snapshot.exists()) {
+          const data = snapshot.data();
+          window.isStarted = data.isStarted || false;
+          window.joinedUsers = data.joinedUsers || {};
+        } else {
+          window.isStarted = false;
+          window.joinedUsers = {};
+        }
+        renderStateUI();
+        renderClassroom(); // 잠금 상태 갱신을 위해 교실 다시 그리기
+      }, (err) => console.error("Firestore State Listen Error:", err));
+    }
+
+    // 접속 시 내 이름 명단에 올리기
+    async function registerUserPresence() {
+      if (!window.currentUser || !window.studentName) return;
+      const stateRef = doc(db, 'artifacts', appId, 'public', 'data', 'classroom', 'state');
+      
+      try {
+        await updateDoc(stateRef, { [`joinedUsers.${window.userUid}`]: window.studentName });
+      } catch (err) {
+        // 첫 진입이라 문서가 없다면 생성
+        await setDoc(stateRef, { 
+          joinedUsers: { [window.userUid]: window.studentName },
+          isStarted: window.isStarted 
+        }, { merge: true });
+      }
+    }
+
+    window.enterClassroom = async function() {
+      const nameInput = document.getElementById('studentNameInput');
+      const name = nameInput.value.trim();
+
+      if (!name) {
+        await window.showDialog('이름이나 번호를 입력해 주세요.', false, 'fa-solid fa-circle-exclamation text-amber-500');
+        return;
+      }
+
+      window.studentName = name;
+      localStorage.setItem('temp_student_name', name);
+      document.getElementById('joinModal').classList.add('hidden');
+      document.getElementById('userInfoText').innerText = `접속자: ${window.studentName}`;
+      
+      // 내 이름 DB 명단에 등록
+      await registerUserPresence();
+    };
+
+    window.changeName = function() {
+      document.getElementById('joinModal').classList.remove('hidden');
+    };
+
+    // 선생님 시작 / 중지 버튼 토글
+    window.toggleSelectionStart = async function() {
+      if (!window.currentUser) return;
+      
+      const newState = !window.isStarted;
+      const stateRef = doc(db, 'artifacts', appId, 'public', 'data', 'classroom', 'state');
+      
+      try {
+        await setDoc(stateRef, { isStarted: newState }, { merge: true });
+      } catch (err) {
+        console.error("Failed to toggle start state:", err);
+      }
+    };
+
+    // 선생님 모드 토글
+    window.toggleTeacherMode = function() {
+      window.isTeacherMode = !window.isTeacherMode;
+      const statusEl = document.getElementById('teacherModeStatus');
+      const btnEl = document.getElementById('teacherModeBtn');
+      
+      if (window.isTeacherMode) {
+        statusEl.innerText = 'ON';
+        statusEl.className = 'text-rose-600 font-bold';
+        btnEl.className = 'px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm';
+      } else {
+        statusEl.innerText = 'OFF';
+        statusEl.className = 'text-slate-500';
+        btnEl.className = 'px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold transition flex items-center gap-1.5';
+      }
+      
+      renderStateUI();
+      renderClassroom();
+    };
+
+    // 자리 선택 처리
+    window.handleSeatClick = async function(seatIndex) {
+      if (!window.currentUser) {
+        await window.showDialog('서버 연결을 확인해 주세요.', false, 'fa-solid fa-triangle-exclamation text-rose-500');
+        return;
+      }
+
+      // ★ 선택 잠금 방어 로직 (선생님이 시작하지 않았을 때)
+      if (!window.isStarted && !window.isTeacherMode) {
+        await window.showDialog('선생님이 아직 자리 선택을 시작하지 않았습니다.\n시작 버튼이 눌릴 때까지 기다려 주세요!', false, 'fa-solid fa-lock text-slate-500');
+        return;
+      }
+
+      const seatKey = `seat_${seatIndex}`;
+      const occupant = window.seatData[seatKey];
+      const myName = window.studentName;
+      const myUid = window.userUid;
+
+      // 선생님 모드 - 삭제 기능
+      if (window.isTeacherMode) {
+        if (!occupant) return; // 빈 자리면 무시
+        const isConfirm = await window.showDialog(`'${occupant.name}' 학생의 자리를 강제로 비우시겠습니까?`, true, 'fa-solid fa-triangle-exclamation text-rose-500');
+        if (isConfirm) {
+          delete window.seatData[seatKey];
+          renderClassroom();
+          await syncToFirestore();
+        }
+        return;
+      }
+
+      // 학생 미입력 상태
+      if (!myName) {
+        await window.showDialog('먼저 이름을 입력해 주세요.', false, 'fa-solid fa-user text-indigo-500');
+        document.getElementById('joinModal').classList.remove('hidden');
+        return;
+      }
+
+      const isMineOccupant = occupant && (occupant.name === myName || occupant.uid === myUid);
+
+      // 1. 타인이 선점함
+      if (occupant && !isMineOccupant) {
+        await window.showDialog(`[${occupant.name}] 님이 이미 선택한 자리입니다.`, false, 'fa-solid fa-lock text-slate-500');
+        return;
+      }
+
+      // 2. 내 자리 선택 취소
+      if (isMineOccupant) {
+        const isConfirm = await window.showDialog('이 자리 선택을 취소하시겠습니까?', true, 'fa-solid fa-arrow-rotate-left text-slate-500');
+        if (isConfirm) {
+          delete window.seatData[seatKey];
+          renderClassroom();
+          await syncToFirestore();
+        }
+        return;
+      }
+
+      // 3. 빈 자리 선택 (기존 내 동일 이름 자리는 삭제)
+      Object.keys(window.seatData).forEach(key => {
+        const item = window.seatData[key];
+        if (item && (item.name === myName || item.uid === myUid)) {
+          delete window.seatData[key];
+        }
+      });
+
+      window.seatData[seatKey] = { name: myName, uid: myUid, time: Date.now() };
+
+      renderClassroom();
+      await syncToFirestore();
+    };
+
+    function filterDuplicates(rawSeats) {
+      const cleanedSeats = {};
+      const nameLatestSeat = {};
+
+      Object.keys(rawSeats).forEach(seatKey => {
+        const item = rawSeats[seatKey];
+        if (item && item.name) {
+          const existing = nameLatestSeat[item.name];
+          const itemTime = item.time || 0;
+          if (!existing || itemTime > existing.time) {
+            nameLatestSeat[item.name] = { seatKey, item, time: itemTime };
+          }
+        }
+      });
+
+      Object.values(nameLatestSeat).forEach(({ seatKey, item }) => {
+        cleanedSeats[seatKey] = item;
+      });
+
+      return { cleanedSeats, hasDuplicates: Object.keys(rawSeats).length !== Object.keys(cleanedSeats).length };
+    }
+
+    async function syncToFirestore() {
+      if (!window.currentUser) return;
+      try {
+        const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'classroom', 'current_seats');
+        await setDoc(roomRef, { seats: window.seatData });
+      } catch (err) {
+        console.error("Firestore Sync Error:", err);
+      }
+    }
+
+    window.cleanDuplicateSeats = async function() {
+      if (!window.currentUser) return;
+      const { cleanedSeats, hasDuplicates } = filterDuplicates(window.seatData);
+      window.seatData = cleanedSeats;
+      renderClassroom();
+      await syncToFirestore();
+      
+      if (hasDuplicates) {
+        await window.showDialog('중복 선택된 이름들을 정리하여 1인 1자리로 맞추었습니다!', false, 'fa-solid fa-broom text-amber-500');
+      } else {
+        await window.showDialog('중복된 자리가 없습니다.', false, 'fa-solid fa-check text-green-500');
+      }
+    };
+
+    window.resetAllSeats = async function() {
+      if (!window.currentUser) return;
+      const isConfirm = await window.showDialog('모든 학생의 자리 선택과 명단을 초기화하시겠습니까?\n선택 기능도 "중지" 상태로 되돌아갑니다.', true, 'fa-solid fa-triangle-exclamation text-rose-600');
+      if (isConfirm) {
+        window.seatData = {};
+        window.isStarted = false; // 시작 상태 해제
+        window.joinedUsers = {};
+        renderClassroom();
+        renderStateUI();
+        
+        // 자리 초기화
+        const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'classroom', 'current_seats');
+        await setDoc(roomRef, { seats: {} });
+        
+        // 시작 상태 초기화
+        const stateRef = doc(db, 'artifacts', appId, 'public', 'data', 'classroom', 'state');
+        await setDoc(stateRef, { isStarted: false }, { merge: true });
+
+        // 접속자 명단 전체 초기화
+        const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'classroom_users');
+        const snap = await getDocs(usersRef);
+        snap.forEach(d => {
+          deleteDoc(d.ref);
+        });
+      }
+    };
+
+    // 명단 및 배너 상태 렌더링
+    function renderStateUI() {
+      // 명단 업데이트
+      const container = document.getElementById('joinedUsersList');
+      const countSpan = document.getElementById('joinedCount');
+      
+      const users = Object.values(window.joinedUsers || {});
+      countSpan.innerText = users.length;
+      
+      if (users.length === 0) {
+        container.innerHTML = '<span class="text-xs text-slate-400">아직 접속한 학생이 없습니다.</span>';
+      } else {
+        container.innerHTML = users.map(name => 
+          `<span class="px-2.5 py-1 bg-indigo-50 border border-indigo-100 text-indigo-700 text-xs font-bold rounded-lg shadow-sm">${name}</span>`
+        ).join('');
+      }
+
+      // 제어 패널 업데이트
+      const teacherControls = document.getElementById('teacherControls');
+      const startBtn = document.getElementById('startSelectionBtn');
+      const banner = document.getElementById('statusBanner');
+      const message = document.getElementById('statusMessage');
+      const icon = document.getElementById('statusIcon');
+
+      // 선생님 모드일 경우 버튼 표시
+      if (window.isTeacherMode) {
+        teacherControls.classList.remove('hidden');
+        if (window.isStarted) {
+          startBtn.innerHTML = '<i class="fa-solid fa-pause"></i> <span>자리 선택 중지하기</span>';
+          startBtn.className = 'w-full md:w-auto px-5 py-2.5 bg-rose-500 hover:bg-rose-600 text-white rounded-xl text-sm font-bold transition flex items-center justify-center gap-2 shadow-lg shadow-rose-200';
+          banner.className = 'bg-amber-50 border border-amber-300 p-4 rounded-2xl mb-6 flex items-center justify-between gap-4 shadow-sm transition';
+          message.innerText = '선생님 모드 ON: 누르는 모든 자리를 강제로 비울 수 있습니다.';
+          icon.innerHTML = '<i class="fa-solid fa-user-gear"></i>';
+          icon.className = 'inline-flex items-center justify-center w-7 h-7 rounded-full bg-amber-500 text-white font-bold text-xs shadow-sm';
+        } else {
+          startBtn.innerHTML = '<i class="fa-solid fa-play"></i> <span>자리 선택 시작하기</span>';
+          startBtn.className = 'w-full md:w-auto px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-bold transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-200';
+          banner.className = 'bg-amber-50 border border-amber-300 p-4 rounded-2xl mb-6 flex items-center justify-between gap-4 shadow-sm transition';
+          message.innerText = '선생님 모드 ON: 누르는 모든 자리를 강제로 비울 수 있습니다.';
+          icon.innerHTML = '<i class="fa-solid fa-user-gear"></i>';
+          icon.className = 'inline-flex items-center justify-center w-7 h-7 rounded-full bg-amber-500 text-white font-bold text-xs shadow-sm';
+        }
+      } else {
+        teacherControls.classList.add('hidden');
+        
+        // 학생 관점 배너 업데이트
+        if (window.isStarted) {
+          banner.className = 'bg-indigo-50 border border-indigo-200 p-4 rounded-2xl mb-6 flex items-center justify-between gap-4 shadow-sm transition';
+          message.innerHTML = '자리 선택이 <b class="text-indigo-600">시작되었습니다!</b> 원하는 자리를 클릭하세요 🎉';
+          icon.innerHTML = '<i class="fa-solid fa-satellite-dish animate-pulse"></i>';
+          icon.className = 'inline-flex items-center justify-center w-7 h-7 rounded-full bg-indigo-600 text-white font-bold text-xs shadow-sm';
+        } else {
+          banner.className = 'bg-slate-50 border border-slate-200 p-4 rounded-2xl mb-6 flex items-center justify-between gap-4 shadow-sm transition';
+          message.innerText = '선생님이 자리 선택을 시작할 때까지 잠시 대기해 주세요 ⏳';
+          icon.innerHTML = '<i class="fa-solid fa-hourglass-half"></i>';
+          icon.className = 'inline-flex items-center justify-center w-7 h-7 rounded-full bg-slate-500 text-white font-bold text-xs shadow-sm';
+        }
+      }
+    }
+
+    // 좌석 UI 렌더링
+    function renderClassroom() {
+      const container = document.getElementById('seatLayout');
+      if (!container) return;
+      container.innerHTML = '';
+
+      let seatIndex = 0;
+      let count = 0;
+      const myName = window.studentName;
+      const myUid = window.userUid;
+      
+      const isLocked = !window.isStarted && !window.isTeacherMode;
+
+      for (let r = 0; r < 4; r++) {
+        const rowDiv = document.createElement('div');
+        rowDiv.className = "flex justify-center items-center gap-3 md:gap-6 flex-wrap";
+
+        const pairsInRow = (r < 3) ? 4 : 3;
+
+        for (let p = 0; p < pairsInRow; p++) {
+          const pairDiv = document.createElement('div');
+          pairDiv.className = "flex gap-2 p-2 rounded-xl border border-slate-200 shadow-sm bg-slate-50";
+
+          const seatsInThisPair = (r === 3 && p === 2) ? 1 : 2;
+
+          for (let s = 0; s < seatsInThisPair; s++) {
+            if (seatIndex < TOTAL_SEATS) {
+              const idx = seatIndex;
+              const seatKey = `seat_${idx}`;
+              const occupant = window.seatData[seatKey];
+
+              if (occupant) count++;
+
+              const isMine = occupant && (occupant.name === myName || occupant.uid === myUid);
+              const isTaken = occupant && !isMine;
+
+              const seatBtn = document.createElement('button');
+              seatBtn.onclick = () => window.handleSeatClick(idx);
+
+              let dynamicClasses = "bg-white border-slate-300 text-slate-700";
+              
+              if (isMine) {
+                dynamicClasses = "seat-mine";
+              } else if (isTaken) {
+                dynamicClasses = window.isTeacherMode ? "seat-taken seat-teacher-hover" : "seat-taken";
+              }
+
+              // 시작되지 않았을 때는 흐리게 (비활성화 느낌 부여)
+              if (isLocked && !isMine && !isTaken) {
+                dynamicClasses += " opacity-60 bg-slate-100 cursor-not-allowed border-dashed";
+              } else if (!isLocked && !isTaken) {
+                dynamicClasses += " hover:border-indigo-400";
+              }
+
+              seatBtn.className = `seat-card relative w-16 h-14 md:w-20 md:h-16 rounded-xl font-bold border-2 text-xs md:text-sm flex flex-col items-center justify-center shadow-sm cursor-pointer select-none transition ${dynamicClasses}`;
+
+              seatBtn.innerHTML = `
+                <span class="text-[10px] text-slate-400 font-normal absolute top-1 left-1.5">${idx + 1}</span>
+                ${isMine ? '<span class="text-[9px] bg-green-500 text-white font-bold px-1 rounded absolute top-1 right-1 shadow-sm">내 자리</span>' : ''}
+                ${window.isTeacherMode && occupant ? '<span class="text-[9px] bg-rose-500 text-white font-bold px-1 rounded absolute top-1 right-1"><i class="fa-solid fa-xmark"></i></span>' : ''}
+                <span class="font-bold truncate max-w-[90%] mt-1 ${isLocked && !occupant ? 'text-slate-300' : ''}">
+                  ${occupant ? occupant.name : '<span class="' + (isLocked ? 'text-slate-300 font-normal' : 'text-slate-300 font-normal') + '">빈 자리</span>'}
+                </span>
+                ${isLocked && !occupant ? '<div class="absolute inset-0 flex justify-center items-center opacity-10"><i class="fa-solid fa-lock text-3xl"></i></div>' : ''}
+              `;
+
+              pairDiv.appendChild(seatBtn);
+              seatIndex++;
+            }
+          }
+          rowDiv.appendChild(pairDiv);
+        }
+        container.appendChild(rowDiv);
+      }
+
+      const countEl = document.getElementById('selectedCount');
+      if (countEl) countEl.innerText = count;
+    }
+
+    renderStateUI();
+    renderClassroom();
+  </script>
+</body>
+</html>
