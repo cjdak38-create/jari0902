@@ -551,11 +551,13 @@
 
     window.resetAllSeats = async function() {
       if (!window.currentUser) return;
-      const isConfirm = await window.showDialog('모든 학생의 자리 선택을 초기화하시겠습니까?\n선택 기능도 "중지" 상태로 되돌아갑니다.', true, 'fa-solid fa-triangle-exclamation text-rose-600');
+      const isConfirm = await window.showDialog('모든 학생의 자리 선택과 명단을 초기화하시겠습니까?\n선택 기능도 "중지" 상태로 되돌아갑니다.', true, 'fa-solid fa-triangle-exclamation text-rose-600');
       if (isConfirm) {
         window.seatData = {};
         window.isStarted = false; // 시작 상태 해제
+        window.joinedUsers = {};
         renderClassroom();
+        renderStateUI();
         
         // 자리 초기화
         const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'classroom', 'current_seats');
@@ -564,6 +566,13 @@
         // 시작 상태 초기화
         const stateRef = doc(db, 'artifacts', appId, 'public', 'data', 'classroom', 'state');
         await setDoc(stateRef, { isStarted: false }, { merge: true });
+
+        // 접속자 명단 전체 초기화
+        const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'classroom_users');
+        const snap = await getDocs(usersRef);
+        snap.forEach(d => {
+          deleteDoc(d.ref);
+        });
       }
     };
 
