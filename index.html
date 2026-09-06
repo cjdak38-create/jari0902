@@ -14,7 +14,7 @@
   <style>
     body {
       font-family: 'Noto Sans KR', sans-serif;
-      user-select: none;
+      user-select: none; /* 텍스트 드래그 방지 */
     }
     .font-chalk {
       font-family: 'Gowun Dodum', sans-serif;
@@ -63,8 +63,8 @@
 
       <div class="space-y-4">
         <div class="text-left">
-          <label class="block text-xs font-bold text-slate-600 mb-1">내 이름 또는 번호</label>
-          <input type="text" id="studentNameInput" onkeyup="if(event.key==='Enter') enterClassroom()" class="w-full px-4 py-3 rounded-xl border border-slate-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm outline-none font-medium" placeholder="예: 박수민">
+          <label class="block text-xs font-bold text-slate-600 mb-1">학번과 이름</label>
+          <input type="text" id="studentNameInput" onkeyup="if(event.key==='Enter') enterClassroom()" class="w-full px-4 py-3 rounded-xl border border-slate-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm outline-none font-medium" placeholder="예: 30701 박수민">
         </div>
 
         <button onclick="enterClassroom()" class="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg shadow-indigo-200 transition active:scale-98 flex items-center justify-center gap-2">
@@ -113,8 +113,8 @@
           <span>선택완료: <b id="selectedCount">0</b> / 29명</span>
         </div>
 
-        <!-- 선생님/관리자 모드 토글 -->
-        <button id="teacherModeBtn" onclick="toggleTeacherMode()" class="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold transition flex items-center gap-1.5">
+        <!-- 선생님/관리자 모드 토글 (선생님에게만 표시됨) -->
+        <button id="teacherModeBtn" onclick="toggleTeacherMode()" class="hidden px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold transition flex items-center gap-1.5">
           <i class="fa-solid fa-user-gear"></i>
           <span>선생님 모드: <span id="teacherModeStatus" class="text-slate-500">OFF</span></span>
         </button>
@@ -141,7 +141,7 @@
   <!-- 메인 교실 영역 -->
   <main class="max-w-6xl mx-auto p-4 md:p-6">
 
-    <!-- 접속자 명단 & 제어 패널 (신규 추가) -->
+    <!-- LMS 기능: 실시간 접속자 명단 & 제어 패널 -->
     <div class="bg-white rounded-3xl p-5 md:p-6 shadow-md border border-slate-200/80 mb-6 flex flex-col md:flex-row gap-4 justify-between items-start md:items-center">
       <div class="flex-1 w-full">
         <h3 class="text-sm font-bold text-slate-800 mb-3"><i class="fa-solid fa-users-rays text-indigo-500 mr-1.5"></i>현재 접속 중인 학생 (<span id="joinedCount" class="text-indigo-600">0</span>명)</h3>
@@ -210,35 +210,41 @@
     </div>
   </main>
 
-  <!-- Firebase SDK -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-    import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { getFirestore, doc, setDoc, updateDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, doc, setDoc, onSnapshot, collection, deleteDoc, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-    // Firebase 설정
-    const firebaseConfig = typeof __firebase_config !== 'undefined' 
-      ? JSON.parse(__firebase_config) 
-      : { apiKey: "demo", authDomain: "demo", projectId: "demo" };
+    // 🔴 중요: 여기에 선생님께서 발급받은 Firebase Config 코드를 덮어쓰세요!
+    // Firebase 콘솔 -> 프로젝트 설정 -> 웹 앱 추가 시 나오는 코드입니다.
+    const firebaseConfig = {
+      apiKey: "본인의_API_KEY를_넣으세요",
+      authDomain: "본인의_DOMAIN을_넣으세요",
+      projectId: "본인의_PROJECT_ID를_넣으세요",
+      storageBucket: "본인의_STORAGE_BUCKET을_넣으세요",
+      messagingSenderId: "본인의_SENDER_ID를_넣으세요",
+      appId: "본인의_APP_ID를_넣으세요"
+    };
 
+    // Firebase 시스템 시작
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
     const db = getFirestore(app);
-    const appId = typeof __app_id !== 'undefined' ? __app_id : 'classroom-seat-app';
+    
+    // Firestore 내의 문서 저장 폴더명 (자유롭게 변경 가능)
+    const appId = 'my-classroom-app';
 
-    // 전역 상태 (새로 추가된 접속자 명단 및 시작 여부 상태 포함)
     window.currentUser = null;
     window.userUid = localStorage.getItem('temp_student_uid') || `user_${Math.random().toString(36).substr(2, 9)}`;
     localStorage.setItem('temp_student_uid', window.userUid);
 
     window.studentName = localStorage.getItem('temp_student_name') || '';
     window.seatData = {};
-    window.joinedUsers = {}; // 전체 접속자 목록
-    window.isStarted = false; // 선생님이 시작 버튼을 눌렀는지 여부
+    window.joinedUsers = {}; // LMS 기능: 전체 접속자 목록
+    window.isStarted = false; // 선생님 시작 버튼 여부
     window.isTeacherMode = false;
     const TOTAL_SEATS = 29;
 
-    // 커스텀 다이얼로그 함수
     window.showDialog = function(message, isConfirm = false, iconClass = 'fa-solid fa-circle-info text-indigo-500') {
       return new Promise((resolve) => {
         const dialog = document.getElementById('customDialog');
@@ -272,39 +278,44 @@
       });
     };
 
-    // 저장된 이름 자동 채우기
+    function checkTeacherMode() {
+      const btn = document.getElementById('teacherModeBtn');
+      // 이름이 '선생님'일 때만 관리자 모드 버튼 노출
+      if (window.studentName === '선생님') {
+        btn.classList.remove('hidden');
+      } else {
+        btn.classList.add('hidden');
+        if (window.isTeacherMode) toggleTeacherMode(); 
+      }
+    }
+
     if (window.studentName) {
       document.getElementById('studentNameInput').value = window.studentName;
       document.getElementById('userInfoText').innerText = `접속자: ${window.studentName}`;
       document.getElementById('joinModal').classList.add('hidden');
+      checkTeacherMode();
     }
 
-    // 1. Firebase 인증 초기화 (가장 중요: await로 완료 보장)
+    // 1. Firebase 익명 로그인 (권한 획득)
     async function initAuthAndData() {
       try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
-        }
+        const userCred = await signInAnonymously(auth);
+        window.currentUser = userCred.user;
+        window.userUid = window.currentUser.uid;
+        localStorage.setItem('temp_student_uid', window.userUid);
         
-        window.currentUser = auth.currentUser;
-        if (window.currentUser) {
-          window.userUid = window.currentUser.uid;
-          localStorage.setItem('temp_student_uid', window.userUid);
-          
-          // 인증이 완료된 후에 리스너 시작 및 접속자 등록
-          startRealtimeListeners();
-          if (window.studentName) {
-            registerUserPresence();
-          }
+        // 로그인이 완벽히 완료된 후 Firestore 실시간 감지 시작
+        startRealtimeListeners();
+        
+        if (window.studentName) {
+          registerUserPresence(); // 이미 접속해 있던 유저 명단에 등록
         }
       } catch (e) {
         console.error("Auth initialization failed:", e);
         const indicator = document.getElementById('syncIndicator');
         if (indicator) {
           indicator.className = "inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-rose-50 text-rose-600";
-          indicator.innerHTML = `🔴 인증 오류`;
+          indicator.innerHTML = `🔴 DB 연결 설정을 확인해주세요! (firebaseConfig)`;
         }
       }
     }
@@ -314,17 +325,19 @@
 
     let seatUnsubscribe = null;
     let stateUnsubscribe = null;
+    let usersUnsubscribe = null;
 
     function startRealtimeListeners() {
-      if (!window.currentUser) return; // 방어 코드
+      if (!window.currentUser) return; 
 
       if (seatUnsubscribe) seatUnsubscribe();
       if (stateUnsubscribe) stateUnsubscribe();
+      if (usersUnsubscribe) usersUnsubscribe();
 
       const indicator = document.getElementById('syncIndicator');
 
       // 1. 좌석 데이터 동기화 리스너
-      const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'classroom', 'current_seats');
+      const roomRef = doc(db, 'classrooms', appId, 'data', 'current_seats');
       seatUnsubscribe = onSnapshot(roomRef, async (snapshot) => {
         if (indicator) {
           indicator.className = "inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200";
@@ -337,43 +350,46 @@
 
           window.seatData = cleanedSeats;
           if (hasDuplicates) {
-            await syncToFirestore(); // 중복 발견 시 즉시 정리
+            await syncToFirestore(); // 중복 발생 시 자동 치유
           }
         } else {
           window.seatData = {};
         }
         renderClassroom();
-      }, (err) => console.error("Firestore Seat Listen Error:", err));
+      }, (err) => console.error("Seat Listen Error:", err));
 
-      // 2. 교실 상태(시작 여부 및 접속자 명단) 동기화 리스너
-      const stateRef = doc(db, 'artifacts', appId, 'public', 'data', 'classroom', 'state');
+      // 2. 교실 상태(시작 여부) 동기화 리스너
+      const stateRef = doc(db, 'classrooms', appId, 'data', 'state');
       stateUnsubscribe = onSnapshot(stateRef, (snapshot) => {
         if (snapshot.exists()) {
-          const data = snapshot.data();
-          window.isStarted = data.isStarted || false;
-          window.joinedUsers = data.joinedUsers || {};
+          window.isStarted = snapshot.data().isStarted || false;
         } else {
           window.isStarted = false;
-          window.joinedUsers = {};
         }
         renderStateUI();
-        renderClassroom(); // 잠금 상태 갱신을 위해 교실 다시 그리기
-      }, (err) => console.error("Firestore State Listen Error:", err));
+        renderClassroom(); 
+      }, (err) => console.error("State Listen Error:", err));
+
+      // 3. 실시간 접속자 명단 동기화 리스너
+      const usersRef = collection(db, 'classrooms', appId, 'users');
+      usersUnsubscribe = onSnapshot(usersRef, (snapshot) => {
+        window.joinedUsers = {};
+        snapshot.forEach((docSnap) => {
+          window.joinedUsers[docSnap.id] = docSnap.data().name;
+        });
+        renderStateUI();
+      }, (err) => console.error("Users Listen Error:", err));
     }
 
-    // 접속 시 내 이름 명단에 올리기
+    // 명단에 이름 올리기
     async function registerUserPresence() {
       if (!window.currentUser || !window.studentName) return;
-      const stateRef = doc(db, 'artifacts', appId, 'public', 'data', 'classroom', 'state');
       
+      const userRef = doc(db, 'classrooms', appId, 'users', window.userUid);
       try {
-        await updateDoc(stateRef, { [`joinedUsers.${window.userUid}`]: window.studentName });
+        await setDoc(userRef, { name: window.studentName, time: Date.now() });
       } catch (err) {
-        // 첫 진입이라 문서가 없다면 생성
-        await setDoc(stateRef, { 
-          joinedUsers: { [window.userUid]: window.studentName },
-          isStarted: window.isStarted 
-        }, { merge: true });
+        console.error("Failed to register presence:", err);
       }
     }
 
@@ -382,7 +398,7 @@
       const name = nameInput.value.trim();
 
       if (!name) {
-        await window.showDialog('이름이나 번호를 입력해 주세요.', false, 'fa-solid fa-circle-exclamation text-amber-500');
+        await window.showDialog('학번과 이름을 입력해 주세요.', false, 'fa-solid fa-circle-exclamation text-amber-500');
         return;
       }
 
@@ -391,7 +407,7 @@
       document.getElementById('joinModal').classList.add('hidden');
       document.getElementById('userInfoText').innerText = `접속자: ${window.studentName}`;
       
-      // 내 이름 DB 명단에 등록
+      checkTeacherMode();
       await registerUserPresence();
     };
 
@@ -399,13 +415,10 @@
       document.getElementById('joinModal').classList.remove('hidden');
     };
 
-    // 선생님 시작 / 중지 버튼 토글
     window.toggleSelectionStart = async function() {
       if (!window.currentUser) return;
-      
       const newState = !window.isStarted;
-      const stateRef = doc(db, 'artifacts', appId, 'public', 'data', 'classroom', 'state');
-      
+      const stateRef = doc(db, 'classrooms', appId, 'data', 'state');
       try {
         await setDoc(stateRef, { isStarted: newState }, { merge: true });
       } catch (err) {
@@ -413,7 +426,6 @@
       }
     };
 
-    // 선생님 모드 토글
     window.toggleTeacherMode = function() {
       window.isTeacherMode = !window.isTeacherMode;
       const statusEl = document.getElementById('teacherModeStatus');
@@ -433,14 +445,13 @@
       renderClassroom();
     };
 
-    // 자리 선택 처리
     window.handleSeatClick = async function(seatIndex) {
       if (!window.currentUser) {
         await window.showDialog('서버 연결을 확인해 주세요.', false, 'fa-solid fa-triangle-exclamation text-rose-500');
         return;
       }
 
-      // ★ 선택 잠금 방어 로직 (선생님이 시작하지 않았을 때)
+      // 잠금 상태 방어
       if (!window.isStarted && !window.isTeacherMode) {
         await window.showDialog('선생님이 아직 자리 선택을 시작하지 않았습니다.\n시작 버튼이 눌릴 때까지 기다려 주세요!', false, 'fa-solid fa-lock text-slate-500');
         return;
@@ -451,9 +462,9 @@
       const myName = window.studentName;
       const myUid = window.userUid;
 
-      // 선생님 모드 - 삭제 기능
+      // 선생님 강제 취소 권한
       if (window.isTeacherMode) {
-        if (!occupant) return; // 빈 자리면 무시
+        if (!occupant) return;
         const isConfirm = await window.showDialog(`'${occupant.name}' 학생의 자리를 강제로 비우시겠습니까?`, true, 'fa-solid fa-triangle-exclamation text-rose-500');
         if (isConfirm) {
           delete window.seatData[seatKey];
@@ -463,7 +474,6 @@
         return;
       }
 
-      // 학생 미입력 상태
       if (!myName) {
         await window.showDialog('먼저 이름을 입력해 주세요.', false, 'fa-solid fa-user text-indigo-500');
         document.getElementById('joinModal').classList.remove('hidden');
@@ -472,13 +482,11 @@
 
       const isMineOccupant = occupant && (occupant.name === myName || occupant.uid === myUid);
 
-      // 1. 타인이 선점함
       if (occupant && !isMineOccupant) {
         await window.showDialog(`[${occupant.name}] 님이 이미 선택한 자리입니다.`, false, 'fa-solid fa-lock text-slate-500');
         return;
       }
 
-      // 2. 내 자리 선택 취소
       if (isMineOccupant) {
         const isConfirm = await window.showDialog('이 자리 선택을 취소하시겠습니까?', true, 'fa-solid fa-arrow-rotate-left text-slate-500');
         if (isConfirm) {
@@ -489,7 +497,7 @@
         return;
       }
 
-      // 3. 빈 자리 선택 (기존 내 동일 이름 자리는 삭제)
+      // 기존 내 자리 삭제 후 이동
       Object.keys(window.seatData).forEach(key => {
         const item = window.seatData[key];
         if (item && (item.name === myName || item.uid === myUid)) {
@@ -528,7 +536,7 @@
     async function syncToFirestore() {
       if (!window.currentUser) return;
       try {
-        const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'classroom', 'current_seats');
+        const roomRef = doc(db, 'classrooms', appId, 'data', 'current_seats');
         await setDoc(roomRef, { seats: window.seatData });
       } catch (err) {
         console.error("Firestore Sync Error:", err);
@@ -554,35 +562,38 @@
       const isConfirm = await window.showDialog('모든 학생의 자리 선택과 명단을 초기화하시겠습니까?\n선택 기능도 "중지" 상태로 되돌아갑니다.', true, 'fa-solid fa-triangle-exclamation text-rose-600');
       if (isConfirm) {
         window.seatData = {};
-        window.isStarted = false; // 시작 상태 해제
+        window.isStarted = false; 
         window.joinedUsers = {};
         renderClassroom();
         renderStateUI();
         
         // 자리 초기화
-        const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'classroom', 'current_seats');
+        const roomRef = doc(db, 'classrooms', appId, 'data', 'current_seats');
         await setDoc(roomRef, { seats: {} });
         
         // 시작 상태 초기화
-        const stateRef = doc(db, 'artifacts', appId, 'public', 'data', 'classroom', 'state');
+        const stateRef = doc(db, 'classrooms', appId, 'data', 'state');
         await setDoc(stateRef, { isStarted: false }, { merge: true });
 
         // 접속자 명단 전체 초기화
-        const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'classroom_users');
-        const snap = await getDocs(usersRef);
-        snap.forEach(d => {
-          deleteDoc(d.ref);
-        });
+        const usersRef = collection(db, 'classrooms', appId, 'users');
+        try {
+          const snap = await getDocs(usersRef);
+          snap.forEach(async (d) => {
+            await deleteDoc(d.ref);
+          });
+        } catch(e) {
+          console.error("Error clearing users:", e);
+        }
       }
     };
 
-    // 명단 및 배너 상태 렌더링
     function renderStateUI() {
-      // 명단 업데이트
+      // 명단 렌더링
       const container = document.getElementById('joinedUsersList');
       const countSpan = document.getElementById('joinedCount');
-      
       const users = Object.values(window.joinedUsers || {});
+      
       countSpan.innerText = users.length;
       
       if (users.length === 0) {
@@ -593,14 +604,13 @@
         ).join('');
       }
 
-      // 제어 패널 업데이트
+      // 제어 배너 및 버튼 상태 렌더링
       const teacherControls = document.getElementById('teacherControls');
       const startBtn = document.getElementById('startSelectionBtn');
       const banner = document.getElementById('statusBanner');
       const message = document.getElementById('statusMessage');
       const icon = document.getElementById('statusIcon');
 
-      // 선생님 모드일 경우 버튼 표시
       if (window.isTeacherMode) {
         teacherControls.classList.remove('hidden');
         if (window.isStarted) {
@@ -620,8 +630,6 @@
         }
       } else {
         teacherControls.classList.add('hidden');
-        
-        // 학생 관점 배너 업데이트
         if (window.isStarted) {
           banner.className = 'bg-indigo-50 border border-indigo-200 p-4 rounded-2xl mb-6 flex items-center justify-between gap-4 shadow-sm transition';
           message.innerHTML = '자리 선택이 <b class="text-indigo-600">시작되었습니다!</b> 원하는 자리를 클릭하세요 🎉';
@@ -636,7 +644,6 @@
       }
     }
 
-    // 좌석 UI 렌더링
     function renderClassroom() {
       const container = document.getElementById('seatLayout');
       if (!container) return;
@@ -683,7 +690,6 @@
                 dynamicClasses = window.isTeacherMode ? "seat-taken seat-teacher-hover" : "seat-taken";
               }
 
-              // 시작되지 않았을 때는 흐리게 (비활성화 느낌 부여)
               if (isLocked && !isMine && !isTaken) {
                 dynamicClasses += " opacity-60 bg-slate-100 cursor-not-allowed border-dashed";
               } else if (!isLocked && !isTaken) {
